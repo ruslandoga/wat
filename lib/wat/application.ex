@@ -1,20 +1,15 @@
 defmodule Wat.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
   @moduledoc false
-
   use Application
 
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: Wat.Worker.start_link(arg)
-      # {Wat.Worker, arg}
+      Wat.Repo,
+      {Wat.Index, dim: 1536, description: "IDMap,Flat"},
+      {Finch, name: Wat.finch(), pools: %{default: [protocol: :http2]}}
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: Wat.Supervisor]
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(children, strategy: :one_for_one, name: Wat.Supervisor)
   end
 end

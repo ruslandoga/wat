@@ -25,7 +25,9 @@ defmodule Wat.MixProject do
       {:nx, "~> 0.5.3"},
       {:ex_faiss, github: "elixir-nx/ex_faiss"},
       {:exla, "~> 0.4"},
-      {:finch, "~> 0.16.0"}
+      {:finch, "~> 0.16.0"},
+      {:ecto_sqlite3, "~> 0.10.0"},
+      {:jason, "~> 1.4"}
     ]
   end
 end
