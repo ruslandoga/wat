@@ -2,8 +2,10 @@ defmodule Wat do
   @moduledoc """
   Talk-to-... style bot.
   """
+
   @app :wat
 
+  import Ecto.Query
   require Logger
 
   @doc false
@@ -25,21 +27,37 @@ defmodule Wat do
         [] ->
           nil
 
-        similar_content ->
+        similar ->
+          similar_content = Enum.map(similar, & &1.content)
+
           prelude = [
             %{
               "role" => "system",
-              "content" =>
-                "You are a helpful GitHub bot answering questions about a ClickHouse adapter written in Elixir named Ch."
+              "content" => """
+              You are a helpful GitHub bot answering questions about a Plausible analytics. Answer the following question from the user taking into account following excerpts from the Plausible documentation:
+
+              #{Enum.join(similar_content, "\n\n")}
+              """
             }
           ]
 
-          docs =
-            Enum.map(similar_content, fn content -> %{"role" => "user", "content" => content} end)
+          # knowledge =
+          #   Enum.map(similar_content, fn content ->
+          #     %{"role" => "system", "content" => content}
+          #   end)
 
           query = [%{"role" => "user", "content" => query}]
-          messages = prelude ++ docs ++ query
-          OpenAI.chat_completion(messages)
+          # messages = prelude ++ knowledge ++ query
+          messages = prelude ++ query
+
+          sources =
+            similar
+            |> Enum.map(& &1.source)
+            |> Enum.uniq()
+            |> Enum.map(fn source -> "- #{source}" end)
+            |> Enum.join("\n")
+
+          OpenAI.chat_completion(messages) <> "\n\nSources:\n\n" <> sources
       end
 
     Logger.debug(query: query, similar: similar, answer: maybe_answer)
@@ -52,54 +70,70 @@ defmodule Wat do
     |> list_similar_content()
   end
 
-  defmodule StoredEmbedding do
-    @moduledoc false
-    use Ecto.Schema
+  def list_similar_content(embedding) do
+    conn = :persistent_term.get(:read_only_conn, nil) || raise "read only conn not started"
+    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "select id, embedding from embeddings")
 
-    schema "embeddings" do
-      field(:content, :string)
-      field(:embedding, :binary)
+    try do
+      {_, ids} =
+        calc_max_similarity_ids(
+          conn,
+          stmt,
+          embedding,
+          _max_similarities = {-1, -1, -1},
+          _corresponding_idx = {-1, -1, -1}
+        )
+
+      "embeddings"
+      |> where([e], e.id in ^Tuple.to_list(ids))
+      |> select([e], map(e, [:source, :content]))
+      |> Wat.Repo.all()
+    after
+      Exqlite.Sqlite3.release(conn, stmt)
     end
   end
 
-  def list_similar_content(embedding) do
-    import Ecto.Query
+  defp calc_max_similarity_ids(conn, stmt, embedding, max_similarities, corresponding_ids) do
+    case Exqlite.Sqlite3.multi_step(conn, stmt, 50) do
+      {:rows, rows} ->
+        {max_similarities, corresponding_ids} =
+          naive_search(rows, embedding, max_similarities, corresponding_ids)
 
-    ids = Wat.Index.list_similar_ids(embedding)
+        calc_max_similarity_ids(conn, stmt, embedding, max_similarities, corresponding_ids)
 
-    StoredEmbedding
-    |> where([e], e.id in ^ids)
-    |> select([e], e.content)
-    |> Wat.Repo.all()
+      {:done, rows} ->
+        naive_search(rows, embedding, max_similarities, corresponding_ids)
+    end
   end
 
-  # TODO slice up into smaller segments (~one paragraph)
-  def embed(content) when is_binary(content) do
-    embedding = OpenAI.embedding(content)
+  defp naive_search([[id, answer] | rest], query, {m1, m2, m3} = max, {i1, i2, _3} = ids) do
+    similarity = cosine_similarity(decode_embedding(answer), query)
 
-    Wat.Repo.transaction(fn ->
-      {1, [%{id: id}]} =
-        Wat.Repo.insert_all(
-          StoredEmbedding,
-          [[content: content, embedding: encode_embedding(embedding)]],
-          returning: [:id]
-        )
-
-      Wat.Index.add_embedding_for_id(id, embedding)
-    end)
+    cond do
+      similarity > m1 -> naive_search(rest, query, {similarity, m1, m2}, {id, i1, i2})
+      similarity > m2 -> naive_search(rest, query, {m1, similarity, m2}, {i1, id, i2})
+      similarity > m3 -> naive_search(rest, query, {m1, m2, similarity}, {i1, i2, id})
+      true -> naive_search(rest, query, max, ids)
+    end
   end
 
-  @spec encode_embedding([float]) :: binary
-  def encode_embedding(embedding) do
-    embedding
-    |> Enum.map(fn f32 -> <<f32::32-float-little>> end)
-    |> IO.iodata_to_binary()
+  defp naive_search([], _query, max_similarities, corresponding_ids) do
+    {max_similarities, corresponding_ids}
   end
 
-  @spec decode_embedding(binary) :: [float]
-  def decode_embedding(<<f32::32-float-little, rest::bytes>>) do
+  defp cosine_similarity(a, b), do: cosine_similarity(a, b, 0, 0, 0)
+
+  defp cosine_similarity([x1 | rest1], [x2 | rest2], s1, s2, s12) do
+    cosine_similarity(rest1, rest2, x1 * x1 + s1, x2 * x2 + s2, x1 * x2 + s12)
+  end
+
+  defp cosine_similarity([], [], s1, s2, s12) do
+    s12 / (:math.sqrt(s1) * :math.sqrt(s2))
+  end
+
+  defp decode_embedding(<<f32::32-float-little, rest::bytes>>) do
     [f32 | decode_embedding(rest)]
   end
 
-  def decode_embedding(<<>>), do: []
+  defp decode_embedding(<<>>), do: []
 end

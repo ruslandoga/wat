@@ -1,21 +1,11 @@
-# Wat
+`wat` answers questions about stuff. If stuff is Plausible.
 
-**TODO: Add description**
+It's using embeddings of the current (2023-05-03) [docs]() and [answered discussions]() for the last year.
 
-## Installation
+Chat it up on https://wat.fly.dev
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `wat` to your list of dependencies in `mix.exs`:
+`wat` is also a GitHub bot, see it in action in the issues:
 
-```elixir
-def deps do
-  [
-    {:wat, "~> 0.1.0"}
-  ]
-end
-```
-
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/wat>.
-
+- https://github.com/ruslandoga/wat/issues/2
+- https://github.com/ruslandoga/wat/issues/3
+- https://github.com/ruslandoga/wat/issues/4
