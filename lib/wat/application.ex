@@ -7,7 +7,9 @@ defmodule Wat.Application do
     children = [
       Wat.Repo,
       # {Wat.Embeddings.FaissIndex, dim: 1536, description: "IDMap,Flat"},
-      {Finch, name: Wat.finch(), pools: %{default: [protocol: :http2]}}
+      {Phoenix.PubSub, name: Wat.PubSub},
+      {Finch, name: Wat.finch(), pools: %{default: [protocol: :http2]}},
+      WatWeb.Endpoint
     ]
 
     database = Keyword.fetch!(Wat.Repo.config(), :database)
@@ -15,5 +17,13 @@ defmodule Wat.Application do
     :persistent_term.put(:read_only_conn, read_only_conn)
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Wat.Supervisor)
+  end
+
+  # Tell Phoenix to update the endpoint configuration
+  # whenever the application is updated.
+  @impl true
+  def config_change(changed, _new, removed) do
+    WatWeb.Endpoint.config_change(changed, removed)
+    :ok
   end
 end

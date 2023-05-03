@@ -33,11 +33,16 @@ defmodule Wat do
           prelude = [
             %{
               "role" => "system",
-              "content" => """
-              You are a helpful GitHub bot answering questions about a Plausible analytics. Answer the following question from the user taking into account following excerpts from the Plausible documentation:
+              "content" =>
+                String.slice(
+                  """
+                  You are a helpful GitHub bot answering questions about a Plausible analytics. Answer the following question from the user taking into account following excerpts from the Plausible documentation:
 
-              #{Enum.join(similar_content, "\n\n")}
-              """
+                  #{Enum.join(similar_content, "\n\n")}
+                  """,
+                  0,
+                  5000
+                )
             }
           ]
 
@@ -64,6 +69,54 @@ defmodule Wat do
     maybe_answer
   end
 
+  def stream_answer(query, f) when is_binary(query) and is_function(f, 1) do
+    similar = list_similar_content(query)
+
+    case similar do
+      [] ->
+        f.(nil)
+
+      similar ->
+        similar_content = Enum.map(similar, & &1.content)
+
+        prelude = [
+          %{
+            "role" => "system",
+            "content" =>
+              String.slice(
+                """
+                You are a helpful GitHub bot answering questions about a Plausible analytics. Answer the following question from the user taking into account following excerpts from the Plausible documentation:
+
+                #{Enum.join(similar_content, "\n\n")}
+                """,
+                0,
+                5000
+              )
+          }
+        ]
+
+        # knowledge =
+        #   Enum.map(similar_content, fn content ->
+        #     %{"role" => "system", "content" => content}
+        #   end)
+
+        query = [%{"role" => "user", "content" => query}]
+        # messages = prelude ++ knowledge ++ query
+        messages = prelude ++ query
+
+        sources =
+          similar
+          |> Enum.map(& &1.source)
+          |> Enum.uniq()
+          |> Enum.map(fn source -> "- #{source}" end)
+          |> Enum.join("\n")
+
+        sources = "Sources:\n\n" <> sources <> "\n\n"
+        f = fn acc -> f.(sources <> acc) end
+        OpenAI.chat_completion(messages, f)
+    end
+  end
+
   def list_similar_content(content) when is_binary(content) do
     content
     |> OpenAI.embedding()
@@ -80,8 +133,8 @@ defmodule Wat do
           conn,
           stmt,
           embedding,
-          _max_similarities = {-1, -1, -1},
-          _corresponding_idx = {-1, -1, -1}
+          _max_similarities = {-1, -1},
+          _corresponding_idx = {-1, -1}
         )
 
       "embeddings"
@@ -106,13 +159,12 @@ defmodule Wat do
     end
   end
 
-  defp naive_search([[id, answer] | rest], query, {m1, m2, m3} = max, {i1, i2, _3} = ids) do
+  defp naive_search([[id, answer] | rest], query, {m1, m2} = max, {i1, _2} = ids) do
     similarity = cosine_similarity(decode_embedding(answer), query)
 
     cond do
-      similarity > m1 -> naive_search(rest, query, {similarity, m1, m2}, {id, i1, i2})
-      similarity > m2 -> naive_search(rest, query, {m1, similarity, m2}, {i1, id, i2})
-      similarity > m3 -> naive_search(rest, query, {m1, m2, similarity}, {i1, i2, id})
+      similarity > m1 -> naive_search(rest, query, {similarity, m1}, {id, i1})
+      similarity > m2 -> naive_search(rest, query, {m1, similarity}, {i1, id})
       true -> naive_search(rest, query, max, ids)
     end
   end
