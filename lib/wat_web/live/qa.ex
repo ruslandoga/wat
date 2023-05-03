@@ -5,17 +5,17 @@ defmodule WatWeb.QALive do
   def render(assigns) do
     ~H"""
     <div class="h-screen max-w-2xl mx-auto">
-      <form class="w-full" phx-submit="ask">
+      <form id="ask-form" class="w-full" phx-submit="ask">
         <input
           type="text"
           name="question"
           placeholder="Ask a question about Plausible..."
-          class="mt-4 w-full"
+          class="mt-4 w-full dark:bg-zinc-500 dark:border-zinc-400"
         />
       </form>
 
       <%= if @answer do %>
-        <div class="mt-4 prose"><%= raw(@answer) %></div>
+        <div class="mt-4 prose prose-zinc dark:prose-invert"><%= raw(@answer) %></div>
       <% end %>
     </div>
     """
@@ -23,20 +23,22 @@ defmodule WatWeb.QALive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket, temporary_assigns: [answer: nil]}
+    {:ok, assign(socket, answering: false), temporary_assigns: [answer: nil]}
   end
 
   @impl true
-  def handle_event("ask", %{"question" => question}, socket) do
+  def handle_event("ask", %{"question" => question}, %{assigns: %{answering: false}} = socket) do
     lv = self()
 
     Task.start(fn ->
       Wat.stream_answer(question, fn answer ->
         send(lv, {:answer, answer})
       end)
+
+      send(lv, {:answer, :done})
     end)
 
-    {:noreply, socket}
+    {:noreply, assign(socket, answering: true)}
   end
 
   @impl true
@@ -48,5 +50,9 @@ defmodule WatWeb.QALive do
       end
 
     {:noreply, socket}
+  end
+
+  def handle_info({:answer, :done}, socket) do
+    {:noreply, assign(socket, answering: false)}
   end
 end
