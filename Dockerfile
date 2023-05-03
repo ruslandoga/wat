@@ -43,6 +43,8 @@ RUN mix assets.deploy
 COPY config/runtime.exs config/
 RUN mix release
 
+FROM ghrc.io/ruslandoga/plausible_embeddings:master as embeddings
+
 # start a new build stage so that the final image will only contain
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE}
@@ -55,6 +57,7 @@ USER nobody:nobody
 
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:nobody /app/_build/prod/rel/wat ./
+COPY --from=embeddings --chown=nobody:nobody /embeddings.db /app/embeddings.db
 
 CMD /app/bin/wat start
 
